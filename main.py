@@ -158,16 +158,8 @@ class Scraper:
 
         if existing_edited_at == current_edited_at:
             should_update = False
-            print(
-                f"⏭ Skipping {filename} - no changes detected (edited_at: {current_edited_at})"
-            )
         else:
-            if existing_edited_at:
-                print(
-                    f"🔄 Updating {filename} - changes detected (old: {existing_edited_at}, new: {current_edited_at})"
-                )
-            else:
-                print(f"📄 Creating new {filename} (edited_at: {current_edited_at})")
+            should_update = True
 
         if not should_update:
             return filepath
@@ -180,7 +172,7 @@ class Scraper:
 
 **Article ID:** {article['id']}  
 **Section ID:** {article['section_id']}  
-**URL:** {article.get('html_url', 'N/A')}  
+**Article URL:** {article.get('html_url', 'N/A')}  
 **Created At:** {article.get('created_at', 'N/A')}  
 **Updated At:** {article.get('updated_at', 'N/A')}  
 **Edited At:** {article.get('edited_at', 'N/A')}  
@@ -207,6 +199,7 @@ class Scraper:
                 "markdown_file": filename,
                 "last_scraped": self.get_current_timestamp(),
                 "openai_upload_status": "pending",  # Track upload status
+                "skip_vector_store": False,  # Whether to skip this file from vector store
             }
 
             # Save updated metadata
@@ -272,7 +265,6 @@ class Scraper:
         results = {}
 
         print("Fetching sections from all categories concurrently...")
-        print("-" * 50)
 
         # Use ThreadPoolExecutor to fetch all categories concurrently
         with ThreadPoolExecutor(max_workers=10) as executor:
@@ -290,7 +282,6 @@ class Scraper:
                 try:
                     sections = future.result()
                     results[category_id] = sections
-                    print(f"✓ Category {category_id}: Found {len(sections)} sections")
                 except Exception as exc:
                     print(f"✗ Category {category_id}: Error occurred - {exc}")
                     results[category_id] = []
@@ -300,11 +291,6 @@ class Scraper:
             if category_id in results:
                 sections = results[category_id]
                 if sections:
-                    print(f"\nCategory {category_id} sections:")
-                    for section in sections:
-                        print(
-                            f"  - Section ID: {section['id']}, Name: {section['name']}"
-                        )
                     all_sections.extend(sections)
 
         return all_sections
@@ -314,8 +300,7 @@ class Scraper:
         all_articles = []
         results = {}
 
-        print("\nFetching articles from all sections concurrently...")
-        print("-" * 50)
+        print("Fetching articles from all sections concurrently...")
 
         # Use ThreadPoolExecutor to fetch all sections concurrently
         with ThreadPoolExecutor(max_workers=15) as executor:
@@ -333,9 +318,6 @@ class Scraper:
                 try:
                     articles = future.result()
                     results[section_id] = articles
-                    print(
-                        f"✓ Section {section_name} ({section_id}): Found {len(articles)} articles"
-                    )
                 except Exception as exc:
                     print(
                         f"✗ Section {section_name} ({section_id}): Error occurred - {exc}"
@@ -343,8 +325,7 @@ class Scraper:
                     results[section_id] = []
 
         # Collect all articles in order of sections and save as Markdown
-        print("\nSaving articles as Markdown files...")
-        print("-" * 50)
+        print("Saving articles as Markdown files...")
 
         saved_count = 0
         for section in sections:
@@ -355,12 +336,9 @@ class Scraper:
                     filepath = self.save_article_as_markdown(article)
                     if filepath:
                         saved_count += 1
-                        print(f"✓ Saved: {os.path.basename(filepath)}")
-                    else:
-                        print(f"✗ Failed to save: {article['title']}")
                 all_articles.extend(articles)
 
-        print(f"\nSuccessfully saved {saved_count} articles as Markdown files")
+        print(f"Successfully saved {saved_count} articles as Markdown files")
         return all_articles
 
     def run(self, category_ids):
@@ -450,6 +428,10 @@ class Scraper:
         articles_to_upload = []
 
         for article_id, article_data in metadata.items():
+            # Skip articles marked to be skipped from vector store
+            if article_data.get("skip_vector_store", False):
+                continue
+                
             upload_status = article_data.get("openai_upload_status", "pending")
             current_updated_at = article_data.get("updated_at")
             last_uploaded_version = article_data.get("last_uploaded_updated_at")
@@ -693,6 +675,32 @@ class OpenAIUploader:
         self.store = None
         print("OpenAI client initialized.")
 
+    def load_articles_metadata(self, output_dir="articles"):
+        """Load articles metadata from the central JSON file"""
+        metadata_file = os.path.join(output_dir, "articles_metadata.json")
+
+        if os.path.exists(metadata_file):
+            try:
+                with open(metadata_file, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"Error loading metadata file: {e}")
+                return {}
+        return {}
+
+    def save_articles_metadata(self, metadata_dict, output_dir="articles"):
+        """Save articles metadata to the central JSON file"""
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        metadata_file = os.path.join(output_dir, "articles_metadata.json")
+
+        try:
+            with open(metadata_file, "w", encoding="utf-8") as f:
+                json.dump(metadata_dict, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"Error saving metadata file: {e}")
+
     def get_markdown_file_paths(self, directory):
         """Get all markdown file paths from a directory"""
         md_files = []
@@ -784,16 +792,6 @@ class OpenAIUploader:
         print(f"Total files processed: {len(file_paths)}")
         print(f"Successfully uploaded: {len(uploaded_files)}")
         print(f"Failed uploads: {len(failed_uploads)}")
-
-        if uploaded_files:
-            print("\nSuccessfully uploaded files:")
-            for file_info in uploaded_files:
-                print(f"  ✓ {file_info['file_name']} -> {file_info['openai_file_id']}")
-
-        if failed_uploads:
-            print("\nFailed uploads:")
-            for file_info in failed_uploads:
-                print(f"  ✗ {file_info['file_name']}: {file_info['error']}")
 
         return uploaded_files, failed_uploads
 
@@ -959,19 +957,6 @@ class OpenAIUploader:
         except Exception as e:
             print(f"Error saving metadata file: {e}")
 
-    def load_articles_metadata(self, articles_directory="articles"):
-        """Load articles metadata from the central JSON file"""
-        metadata_file = os.path.join(articles_directory, "articles_metadata.json")
-
-        if os.path.exists(metadata_file):
-            try:
-                with open(metadata_file, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception as e:
-                print(f"Error loading metadata file: {e}")
-                return {}
-        return {}
-
     def upload_articles_by_ids_batch(
         self,
         article_ids,
@@ -1073,13 +1058,6 @@ class OpenAIUploader:
                 print(f"Creating new vector store: '{vector_store_name}'...")
                 store = self.client.vector_stores.create(
                     name=vector_store_name,
-                    chunking_strategy={
-                        "type": "static",
-                        "static": {
-                            "chunk_overlap_tokens": 400,
-                            "max_chunk_size_tokens": 2048,
-                        },
-                    },
                 )
                 print(f"✓ Created new vector store: {store.name} (ID: {store.id})")
 
@@ -1133,9 +1111,13 @@ class OpenAIUploader:
             print("No metadata found.")
             return
 
-        # Find all files that have been uploaded to OpenAI
+        # Find all files that have been uploaded to OpenAI and are not marked to skip
         uploaded_files = []
         for article_id, article_data in metadata.items():
+            # Skip articles marked to be skipped from vector store
+            if article_data.get("skip_vector_store", False):
+                continue
+                
             if article_data.get(
                 "openai_upload_status"
             ) == "uploaded" and article_data.get("openai_file_id"):
@@ -1151,31 +1133,61 @@ class OpenAIUploader:
             print("No uploaded files found in metadata.")
             return
 
-        print(f"Found {len(uploaded_files)} uploaded files to attach to vector store:")
-        print("-" * 60)
+        print(f"Attaching {len(uploaded_files)} files to vector store...")
 
-        successful_attachments = 0
-        failed_attachments = 0
+        added_count = 0
+        updated_count = 0
+        skipped_count = 0
+        failed_count = 0
+        total_chunks = 0
 
         for file_info in uploaded_files:
-            print(f"Attaching {file_info['article_id']}: {file_info['title']}")
+            try:
+                response = self.client.post(
+                    f"/vector_stores/{self.store.id}/files",
+                    body={"file_id": file_info["file_id"]},
+                    cast_to=httpx.Response,
+                )
 
-            if self.attach_files_to_vector_store(file_info["file_id"]):
-                successful_attachments += 1
-            else:
-                failed_attachments += 1
+                if hasattr(response, "status") and response.status == "completed":
+                    added_count += 1
+                    if hasattr(response, "chunking_strategy"):
+                        # Estimate chunks based on file size or tokens
+                        total_chunks += getattr(response, "chunk_count", 1)
+                elif hasattr(response, "status") and response.status == "in_progress":
+                    updated_count += 1
+                else:
+                    added_count += 1
 
-        print("-" * 60)
+            except Exception as e:
+                error_str = str(e).lower()
+                if "already" in error_str or "duplicate" in error_str:
+                    skipped_count += 1
+                else:
+                    failed_count += 1
+
         print("VECTOR STORE ATTACHMENT SUMMARY")
-        print("-" * 60)
+        print("-" * 50)
         print(f"Total files processed: {len(uploaded_files)}")
-        print(f"Successfully attached: {successful_attachments}")
-        print(f"Failed attachments: {failed_attachments}")
+        print(f"Files added: {added_count}")
+        print(f"Files updated: {updated_count}")
+        print(f"Files skipped: {skipped_count}")
+        print(f"Files failed: {failed_count}")
+        # Get updated vector store info
+        try:
+            store_info = self.client.get(f"/vector_stores/{self.store.id}")
+            if hasattr(store_info, "file_counts"):
+                print(f"Vector store total files: {store_info.file_counts.total}")
+        except:
+            pass
 
         return {
             "total": len(uploaded_files),
-            "successful": successful_attachments,
-            "failed": failed_attachments,
+            "added": added_count,
+            "updated": updated_count,
+            "skipped": skipped_count,
+            "failed": failed_count,
+            "chunks": total_chunks,
         }
 
 
@@ -1267,9 +1279,17 @@ def show_upload_status():
         print("No articles found in metadata.")
         return
 
-    # Count by status
+    # Count by status and track skipped articles
     status_counts = {}
+    skipped_count = 0
+    active_articles = 0
+    
     for article_id, article_data in metadata.items():
+        if article_data.get("skip_vector_store", False):
+            skipped_count += 1
+        else:
+            active_articles += 1
+            
         status = article_data.get("openai_upload_status", "pending")
         status_counts[status] = status_counts.get(status, 0) + 1
 
@@ -1279,10 +1299,16 @@ def show_upload_status():
         print(f"{status.title()}: {count}")
 
     print(f"\nTotal articles: {len(metadata)}")
+    print(f"Active articles (not skipped): {active_articles}")
+    print(f"Skipped from vector store: {skipped_count}")
 
-    # Show pending/failed articles
+    # Show pending/failed articles (excluding skipped ones)
     pending_articles = []
     for article_id, article_data in metadata.items():
+        # Skip articles marked to be skipped from vector store
+        if article_data.get("skip_vector_store", False):
+            continue
+            
         status = article_data.get("openai_upload_status", "pending")
         if status in ["pending", "failed"]:
             pending_articles.append(
@@ -1429,6 +1455,98 @@ def show_vector_store_info():
 
     except Exception as e:
         print(f"Error getting vector store info: {e}")
+
+
+def set_article_skip_vector_store(article_id, skip=True, articles_directory="articles"):
+    """Set or unset the skip_vector_store flag for a specific article"""
+    scraper = Scraper()
+    metadata = scraper.load_articles_metadata(articles_directory)
+    
+    if str(article_id) not in metadata:
+        print(f"Article {article_id} not found in metadata.")
+        return False
+    
+    metadata[str(article_id)]["skip_vector_store"] = skip
+    scraper.save_articles_metadata(metadata, articles_directory)
+    
+    skip_status = "skip" if skip else "include"
+    print(f"Article {article_id} set to {skip_status} in vector store.")
+    return True
+
+
+def list_skipped_articles(articles_directory="articles"):
+    """List all articles that are marked to skip vector store"""
+    scraper = Scraper()
+    metadata = scraper.load_articles_metadata(articles_directory)
+    
+    skipped_articles = []
+    for article_id, article_data in metadata.items():
+        if article_data.get("skip_vector_store", False):
+            skipped_articles.append({
+                "id": article_id,
+                "title": article_data.get("title", "Unknown"),
+                "html_url": article_data.get("html_url", "N/A")
+            })
+    
+    if skipped_articles:
+        print(f"\nArticles marked to skip vector store ({len(skipped_articles)}):")
+        print("-" * 60)
+        for article in skipped_articles:
+            print(f"ID: {article['id']}")
+            print(f"Title: {article['title']}")
+            print(f"URL: {article['html_url']}")
+            print("-" * 60)
+    else:
+        print("No articles are marked to skip vector store.")
+    
+    return skipped_articles
+
+
+def ensure_skip_vector_store_field(articles_directory="articles"):
+    """Ensure all articles in metadata have the skip_vector_store field with default value False"""
+    scraper = Scraper()
+    metadata = scraper.load_articles_metadata(articles_directory)
+    
+    updated_count = 0
+    for article_id, article_data in metadata.items():
+        if "skip_vector_store" not in article_data:
+            article_data["skip_vector_store"] = False
+            updated_count += 1
+    
+    if updated_count > 0:
+        scraper.save_articles_metadata(metadata, articles_directory)
+        print(f"Added skip_vector_store field to {updated_count} articles with default value False.")
+    else:
+        print("All articles already have the skip_vector_store field.")
+    
+    return updated_count
+
+
+def bulk_set_skip_vector_store(article_ids, skip=True, articles_directory="articles"):
+    """Set skip_vector_store flag for multiple articles"""
+    scraper = Scraper()
+    metadata = scraper.load_articles_metadata(articles_directory)
+    
+    updated_count = 0
+    not_found_count = 0
+    
+    for article_id in article_ids:
+        if str(article_id) in metadata:
+            metadata[str(article_id)]["skip_vector_store"] = skip
+            updated_count += 1
+        else:
+            print(f"Article {article_id} not found in metadata.")
+            not_found_count += 1
+    
+    if updated_count > 0:
+        scraper.save_articles_metadata(metadata, articles_directory)
+        skip_status = "skip" if skip else "include"
+        print(f"Updated {updated_count} articles to {skip_status} in vector store.")
+    
+    if not_found_count > 0:
+        print(f"{not_found_count} articles were not found.")
+    
+    return updated_count
 
 
 if __name__ == "__main__":

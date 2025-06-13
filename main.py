@@ -1,3 +1,27 @@
+"""
+Enhanced Web Scraper for OptSigns Support Articles with Vector Store Attachment Tracking
+
+This scraper now includes comprehensive tracking of vector store attachments:
+
+New metadata fields added:
+- vector_store_attachment_status: "pending" | "attached" | "failed"
+- vector_store_attached_at: ISO timestamp when file was attached
+- vector_store_id: ID of the vector store the file is attached to
+
+Usage examples:
+    # Check attachment status
+    check_attachment_status()
+    
+    # Get detailed attachment info
+    status_info = get_attached_files_info()
+    
+    # Upload and attach files
+    uploader = OpenAIUploader()
+    uploader.upload_markdown_files_batch("articles")
+    uploader.create_and_check_vector_store()
+    uploader.attach_uploaded_files_to_vector_store()
+"""
+
 import json
 import os
 import re
@@ -112,11 +136,25 @@ class Scraper:
         if os.path.exists(metadata_file):
             try:
                 with open(metadata_file, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                    metadata = json.load(f)
+                    # Ensure compatibility with new attachment fields
+                    return self.ensure_metadata_compatibility(metadata)
             except Exception as e:
                 print(f"Error loading metadata file: {e}")
                 return {}
         return {}
+
+    def ensure_metadata_compatibility(self, metadata):
+        """Ensure metadata has all required fields for vector store attachment tracking"""
+        for article_id, article_data in metadata.items():
+            # Add missing fields with default values
+            if "vector_store_attachment_status" not in article_data:
+                article_data["vector_store_attachment_status"] = "pending"
+            if "vector_store_attached_at" not in article_data:
+                article_data["vector_store_attached_at"] = None
+            if "vector_store_id" not in article_data:
+                article_data["vector_store_id"] = None
+        return metadata
 
     def save_articles_metadata(self, metadata_dict, output_dir=None):
         """Save articles metadata to the central JSON file"""
@@ -200,6 +238,8 @@ class Scraper:
                 "last_scraped": self.get_current_timestamp(),
                 "openai_upload_status": "pending",  # Track upload status
                 "skip_vector_store": False,  # Whether to skip this file from vector store
+                "vector_store_attachment_status": "pending",  # Track vector store attachment status
+                "vector_store_attached_at": None,  # Timestamp when attached to vector store
             }
 
             # Save updated metadata
@@ -682,7 +722,9 @@ class OpenAIUploader:
         if os.path.exists(metadata_file):
             try:
                 with open(metadata_file, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                    metadata = json.load(f)
+                    # Ensure compatibility with new attachment fields
+                    return self.ensure_metadata_compatibility(metadata)
             except Exception as e:
                 print(f"Error loading metadata file: {e}")
                 return {}
@@ -1032,7 +1074,6 @@ class OpenAIUploader:
 
         return results
 
-    # ...existing code...
     def create_and_check_vector_store(self):
         """Create and check the vector store for articles"""
         print("Checking if vector store exists...")
@@ -1077,8 +1118,8 @@ class OpenAIUploader:
             print(f"❌ Error with vector store: {e}")
             return None
 
-    def attach_files_to_vector_store(self, file_id):
-        """Attach a single file to the vector store"""
+    def attach_files_to_vector_store(self, file_id, article_id=None, articles_directory="articles"):
+        """Attach a single file to the vector store and update metadata"""
         if not self.store:
             print("No vector store available to attach files.")
             return False
@@ -1090,10 +1131,29 @@ class OpenAIUploader:
                 cast_to=httpx.Response,
             )
             print(f"✓ Successfully attached file {file_id} to vector store")
+            
+            # Update metadata if article_id is provided
+            if article_id:
+                metadata = self.load_articles_metadata(articles_directory)
+                if article_id in metadata:
+                    from datetime import datetime
+                    metadata[article_id]["vector_store_attachment_status"] = "attached"
+                    metadata[article_id]["vector_store_attached_at"] = datetime.now().isoformat()
+                    metadata[article_id]["vector_store_id"] = self.store.id
+                    self.save_articles_metadata(metadata, articles_directory)
+            
             return True
 
         except Exception as e:
             print(f"✗ Error attaching file {file_id} to vector store: {e}")
+            
+            # Update metadata for failed attachment if article_id is provided
+            if article_id:
+                metadata = self.load_articles_metadata(articles_directory)
+                if article_id in metadata:
+                    metadata[article_id]["vector_store_attachment_status"] = "failed"
+                    self.save_articles_metadata(metadata, articles_directory)
+            
             return False
 
     def attach_uploaded_files_to_vector_store(self, articles_directory="articles"):
@@ -1149,6 +1209,14 @@ class OpenAIUploader:
                     cast_to=httpx.Response,
                 )
 
+                # Update metadata for successful attachment
+                article_id = file_info["article_id"]
+                if article_id in metadata:
+                    from datetime import datetime
+                    metadata[article_id]["vector_store_attachment_status"] = "attached"
+                    metadata[article_id]["vector_store_attached_at"] = datetime.now().isoformat()
+                    metadata[article_id]["vector_store_id"] = self.store.id
+
                 if hasattr(response, "status") and response.status == "completed":
                     added_count += 1
                     if hasattr(response, "chunking_strategy"):
@@ -1163,8 +1231,23 @@ class OpenAIUploader:
                 error_str = str(e).lower()
                 if "already" in error_str or "duplicate" in error_str:
                     skipped_count += 1
+                    # Update metadata for already attached files
+                    article_id = file_info["article_id"]
+                    if article_id in metadata:
+                        from datetime import datetime
+                        metadata[article_id]["vector_store_attachment_status"] = "attached"
+                        if not metadata[article_id].get("vector_store_attached_at"):
+                            metadata[article_id]["vector_store_attached_at"] = datetime.now().isoformat()
+                        metadata[article_id]["vector_store_id"] = self.store.id
                 else:
                     failed_count += 1
+                    # Update metadata for failed attachments
+                    article_id = file_info["article_id"]
+                    if article_id in metadata:
+                        metadata[article_id]["vector_store_attachment_status"] = "failed"
+
+        # Save updated metadata
+        self.save_articles_metadata(metadata, articles_directory)
 
         print("VECTOR STORE ATTACHMENT SUMMARY")
         print("-" * 50)
@@ -1181,6 +1264,9 @@ class OpenAIUploader:
         except:
             pass
 
+        # Print detailed attachment status report
+        self.print_attachment_status_report(articles_directory)
+
         return {
             "total": len(uploaded_files),
             "added": added_count,
@@ -1189,6 +1275,99 @@ class OpenAIUploader:
             "failed": failed_count,
             "chunks": total_chunks,
         }
+
+    def ensure_metadata_compatibility(self, metadata):
+        """Ensure metadata has all required fields for vector store attachment tracking"""
+        for article_id, article_data in metadata.items():
+            # Add missing fields with default values
+            if "vector_store_attachment_status" not in article_data:
+                article_data["vector_store_attachment_status"] = "pending"
+            if "vector_store_attached_at" not in article_data:
+                article_data["vector_store_attached_at"] = None
+            if "vector_store_id" not in article_data:
+                article_data["vector_store_id"] = None
+        return metadata
+
+    def get_attachment_status_summary(self, articles_directory="articles"):
+        """Get a summary of vector store attachment status for all articles"""
+        metadata = self.load_articles_metadata(articles_directory)
+        
+        if not metadata:
+            print("No metadata found.")
+            return {}
+        
+        status_counts = {
+            "attached": 0,
+            "pending": 0,
+            "failed": 0,
+            "total": len(metadata)
+        }
+        
+        attached_articles = []
+        pending_articles = []
+        failed_articles = []
+        
+        for article_id, article_data in metadata.items():
+            status = article_data.get("vector_store_attachment_status", "pending")
+            
+            if status == "attached":
+                status_counts["attached"] += 1
+                attached_articles.append({
+                    "id": article_id,
+                    "title": article_data.get("title", "Unknown"),
+                    "attached_at": article_data.get("vector_store_attached_at"),
+                    "vector_store_id": article_data.get("vector_store_id")
+                })
+            elif status == "failed":
+                status_counts["failed"] += 1
+                failed_articles.append({
+                    "id": article_id,
+                    "title": article_data.get("title", "Unknown")
+                })
+            else:
+                status_counts["pending"] += 1
+                pending_articles.append({
+                    "id": article_id,
+                    "title": article_data.get("title", "Unknown")
+                })
+        
+        return {
+            "counts": status_counts,
+            "attached": attached_articles,
+            "pending": pending_articles,
+            "failed": failed_articles
+        }
+
+    def print_attachment_status_report(self, articles_directory="articles"):
+        """Print a detailed report of vector store attachment status"""
+        summary = self.get_attachment_status_summary(articles_directory)
+        
+        if not summary:
+            return
+        
+        counts = summary["counts"]
+        
+        print("\nVECTOR STORE ATTACHMENT STATUS REPORT")
+        print("=" * 50)
+        print(f"Total articles: {counts['total']}")
+        print(f"Successfully attached: {counts['attached']}")
+        print(f"Pending attachment: {counts['pending']}")
+        print(f"Failed attachment: {counts['failed']}")
+        print(f"Attachment rate: {(counts['attached'] / counts['total'] * 100):.1f}%")
+        
+        if summary["failed"]:
+            print(f"\nFailed attachments ({len(summary['failed'])}):")
+            for article in summary["failed"][:5]:  # Show first 5
+                print(f"  - {article['id']}: {article['title']}")
+            if len(summary["failed"]) > 5:
+                print(f"  ... and {len(summary['failed']) - 5} more")
+        
+        if summary["pending"]:
+            print(f"\nPending attachments ({len(summary['pending'])}):")
+            for article in summary["pending"][:5]:  # Show first 5
+                print(f"  - {article['id']}: {article['title']}")
+            if len(summary["pending"]) > 5:
+                print(f"  ... and {len(summary['pending']) - 5} more")
 
 
 def main():
@@ -1547,6 +1726,18 @@ def bulk_set_skip_vector_store(article_ids, skip=True, articles_directory="artic
         print(f"{not_found_count} articles were not found.")
     
     return updated_count
+
+
+def check_attachment_status(articles_directory="articles"):
+    """Convenience function to check vector store attachment status"""
+    uploader = OpenAIUploader()
+    uploader.print_attachment_status_report(articles_directory)
+
+
+def get_attached_files_info(articles_directory="articles"):
+    """Convenience function to get information about attached files"""
+    uploader = OpenAIUploader()
+    return uploader.get_attachment_status_summary(articles_directory)
 
 
 if __name__ == "__main__":

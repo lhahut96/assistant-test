@@ -1,0 +1,17 @@
+# Crontab for running the scraper once daily
+# This will run the Python scraper script every day at 2:00 AM UTC
+# Format: minute hour day month day_of_week command
+
+0 2 * * * cd /app && python main.py >> /var/log/scraper.log 2>&1
+
+# Alternative schedules (uncomment one if you prefer):
+# Run at midnight UTC:
+# 0 0 * * * cd /app && python main.py >> /var/log/scraper.log 2>&1
+
+# Run at 6:00 AM UTC:
+# 0 6 * * * cd /app && python main.py >> /var/log/scraper.log 2>&1
+
+# Run at noon UTC:
+# 0 12 * * * cd /app && python main.py >> /var/log/scraper.log 2>&1
+
+# Empty line required at end of crontab file

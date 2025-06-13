@@ -1173,6 +1173,8 @@ class OpenAIUploader:
 
         # Find all files that have been uploaded to OpenAI and are not marked to skip
         uploaded_files = []
+        files_needing_update = []
+        already_attached_count = 0
         for article_id, article_data in metadata.items():
             # Skip articles marked to be skipped from vector store
             if article_data.get("skip_vector_store", False):
@@ -1181,19 +1183,118 @@ class OpenAIUploader:
             if article_data.get(
                 "openai_upload_status"
             ) == "uploaded" and article_data.get("openai_file_id"):
-                uploaded_files.append(
-                    {
-                        "article_id": article_id,
-                        "file_id": article_data["openai_file_id"],
-                        "title": article_data.get("title", "Unknown"),
-                    }
+                # Check if file needs to be updated
+                current_updated_at = article_data.get("updated_at")
+                last_uploaded_version = article_data.get("last_uploaded_updated_at")
+                vector_store_status = article_data.get("vector_store_attachment_status")
+                
+                # Check if file content has been updated since last upload
+                needs_file_update = (
+                    current_updated_at and 
+                    last_uploaded_version and 
+                    current_updated_at != last_uploaded_version
                 )
+                
+                if needs_file_update:
+                    # File needs to be re-uploaded and re-attached
+                    files_needing_update.append({
+                        "article_id": article_id,
+                        "old_file_id": article_data["openai_file_id"],
+                        "title": article_data.get("title", "Unknown"),
+                        "current_version": current_updated_at,
+                        "uploaded_version": last_uploaded_version,
+                    })
+                elif vector_store_status == "attached":
+                    # File is already attached and up to date
+                    already_attached_count += 1
+                    continue
+                else:
+                    # File is uploaded but not attached yet
+                    uploaded_files.append(
+                        {
+                            "article_id": article_id,
+                            "file_id": article_data["openai_file_id"],
+                            "title": article_data.get("title", "Unknown"),
+                        }
+                    )
 
-        if not uploaded_files:
-            print("No uploaded files found in metadata.")
+        # Handle files that need updates first
+        files_updated_count = 0
+        files_update_failed_count = 0
+        
+        if files_needing_update:
+            print(f"Processing {len(files_needing_update)} files that need updates...")
+            
+            for file_info in files_needing_update:
+                article_id = file_info["article_id"]
+                old_file_id = file_info["old_file_id"]
+                title = file_info["title"]
+                
+                try:
+                    # Step 1: Delete old file from vector store if it's attached
+                    if metadata[article_id].get("vector_store_attachment_status") == "attached":
+                        print(f"Removing old version of '{title}' from vector store...")
+                        try:
+                            self.client.delete(f"/vector_stores/{self.store.id}/files/{old_file_id}")
+                            print(f"✓ Removed old file {old_file_id} from vector store")
+                        except Exception as delete_error:
+                            print(f"⚠ Could not remove old file from vector store: {delete_error}")
+                            # Continue anyway, as we'll upload the new version
+                    
+                    # Step 2: Upload new version of the file
+                    print(f"Uploading updated version of '{title}'...")
+                    upload_result = self.upload_article_by_id(
+                        article_id, 
+                        articles_directory=articles_directory, 
+                        force_reupload=True
+                    )
+                    
+                    if upload_result and upload_result.get("status") == "success":
+                        new_file_id = upload_result["openai_file_id"]
+                        print(f"✓ Successfully uploaded new version (File ID: {new_file_id})")
+                        
+                        # Step 3: Attach new file to vector store
+                        try:
+                            response = self.client.post(
+                                f"/vector_stores/{self.store.id}/files",
+                                body={"file_id": new_file_id},
+                                cast_to=httpx.Response,
+                            )
+                            
+                            # Update metadata for successful attachment
+                            from datetime import datetime
+                            metadata[article_id]["vector_store_attachment_status"] = "attached"
+                            metadata[article_id]["vector_store_attached_at"] = datetime.now().isoformat()
+                            metadata[article_id]["vector_store_id"] = self.store.id
+                            
+                            files_updated_count += 1
+                            print(f"✓ Successfully attached updated file to vector store")
+                            
+                        except Exception as attach_error:
+                            print(f"✗ Failed to attach updated file to vector store: {attach_error}")
+                            metadata[article_id]["vector_store_attachment_status"] = "failed"
+                            files_update_failed_count += 1
+                    else:
+                        print(f"✗ Failed to upload updated version of '{title}'")
+                        files_update_failed_count += 1
+                        
+                except Exception as e:
+                    print(f"✗ Error processing update for '{title}': {e}")
+                    files_update_failed_count += 1
+
+        if not uploaded_files and not files_needing_update:
+            if already_attached_count > 0:
+                print(f"No files to attach. {already_attached_count} files are already attached to the vector store.")
+            else:
+                print("No uploaded files found in metadata.")
             return
 
-        print(f"Attaching {len(uploaded_files)} files to vector store...")
+        if uploaded_files:
+            print(f"Attaching {len(uploaded_files)} files to vector store...")
+        if files_needing_update:
+            print(f"Processing {len(files_needing_update)} files with content updates...")
+        if already_attached_count > 0:
+            print(f"Skipping {already_attached_count} files that are already attached and up to date.")
 
         added_count = 0
         updated_count = 0
@@ -1251,7 +1352,16 @@ class OpenAIUploader:
 
         print("VECTOR STORE ATTACHMENT SUMMARY")
         print("-" * 50)
-        print(f"Total files processed: {len(uploaded_files)}")
+        total_processed = len(uploaded_files) + len(files_needing_update)
+        total_files = total_processed + already_attached_count
+        print(f"Total uploaded files: {total_files}")
+        print(f"Files processed: {total_processed}")
+        if already_attached_count > 0:
+            print(f"Files already attached (skipped): {already_attached_count}")
+        if files_updated_count > 0:
+            print(f"Files updated and re-attached: {files_updated_count}")
+        if files_update_failed_count > 0:
+            print(f"File updates failed: {files_update_failed_count}")
         print(f"Files added: {added_count}")
         print(f"Files updated: {updated_count}")
         print(f"Files skipped: {skipped_count}")
@@ -1268,7 +1378,11 @@ class OpenAIUploader:
         self.print_attachment_status_report(articles_directory)
 
         return {
-            "total": len(uploaded_files),
+            "total": len(uploaded_files) + len(files_needing_update) + already_attached_count,
+            "processed": len(uploaded_files) + len(files_needing_update),
+            "already_attached": already_attached_count,
+            "files_updated": files_updated_count,
+            "files_update_failed": files_update_failed_count,
             "added": added_count,
             "updated": updated_count,
             "skipped": skipped_count,

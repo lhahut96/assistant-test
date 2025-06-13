@@ -103,6 +103,7 @@ scrape-bot/
 - **Location**: `./articles/` directory
 - **Naming**: Articles are saved using their unique article IDs
 - **Content**: Includes title, metadata, and converted HTML content
+- **Chunk Strategy**: Since I do not understand much about chunking for embedding I chose default strategy
 
 ### Sample Article Format
 

@@ -14,6 +14,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the main script and other necessary files
 COPY main.py /app/main.py
+COPY log_file_server.py /app/log_file_server.py
 # Copy the crontab file
 COPY crontab /etc/cron.d/scraper-crontab
 
@@ -23,14 +24,50 @@ RUN chmod 0644 /etc/cron.d/scraper-crontab
 # Apply the crontab
 RUN crontab /etc/cron.d/scraper-crontab
 
-# Create log directory
+# Create log directory and logs subdirectory for the log server
 RUN mkdir -p /var/log
+RUN mkdir -p /app/logs
 
-# Create the log file to be able to run tail
+# Create the log files
 RUN touch /var/log/scraper.log
+RUN touch /app/logs/scraper.log
 
 # Create articles directory
 RUN mkdir -p /app/articles
 
-# Start cron and run initial scrape
-CMD ["sh", "-c", "cd /app && python main.py >> /var/log/scraper.log 2>&1 && echo 'Initial scrape completed at $(date)' >> /var/log/scraper.log && cron && tail -f /var/log/scraper.log"]
+# Create startup script to run both services
+RUN echo '#!/bin/bash\n\
+\n\
+# Function to sync logs\n\
+sync_logs() {\n\
+    while true; do\n\
+        if [ -f /var/log/scraper.log ]; then\n\
+            cp /var/log/scraper.log /app/logs/scraper.log 2>/dev/null || true\n\
+        fi\n\
+        sleep 5\n\
+    done\n\
+}\n\
+\n\
+# Run initial scrape\n\
+echo "Running initial scrape..."\n\
+cd /app && python main.py >> /var/log/scraper.log 2>&1\n\
+cp /var/log/scraper.log /app/logs/scraper.log 2>/dev/null || true\n\
+echo "Initial scrape completed at $(date)" | tee -a /var/log/scraper.log /app/logs/scraper.log\n\
+\n\
+# Start cron\n\
+echo "Starting cron..."\n\
+cron\n\
+\n\
+# Start log sync in background\n\
+sync_logs &\n\
+\n\
+# Start log file server in background\n\
+echo "Starting log file server on port 8080..."\n\
+python log_file_server.py &\n\
+\n\
+# Follow scraper logs\n\
+echo "Following scraper logs..."\n\
+tail -f /var/log/scraper.log' > /app/start.sh && chmod +x /app/start.sh
+
+# Use the startup script
+CMD ["/app/start.sh"]

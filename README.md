@@ -1,3 +1,17 @@
+## Live Logs Access
+
+🔗 **View live logs**: [http://143.198.228.47:8080/logs/scraper.log](http://143.198.228.47:8080/logs/scraper.log)
+
+## Screenshots
+
+### Log File Server Interface
+![Log Server Interface](screenshots/log-server.png)
+*Web interface showing available log files*
+
+### Live Log Monitoring
+![Live Logs](screenshots/live-logs.png)
+*Real-time log monitoring through the web interface*
+
 ## Setup
 
 ### Prerequisites
@@ -40,6 +54,12 @@ docker-compose down
 ```
 
 ### Real-time Log Monitoring
+
+**Web Interface (Recommended)**:
+- Live logs: [http://143.198.228.47:8080/logs/scraper.log](http://143.198.228.47:8080/logs/scraper.log)
+- Log server home: [http://143.198.228.47:8080/](http://143.198.228.47:8080/)
+
+**Command Line**:
 ```bash
 # View live logs
 docker-compose logs -f scrape-bot
@@ -49,6 +69,7 @@ tail -f logs/scraper.log
 ```
 
 ### Log Files Location
+- **Web Interface**: [http://143.198.228.47:8080/logs/scraper.log](http://143.198.228.47:8080/logs/scraper.log)
 - **Container logs**: `/var/log/scraper.log`
 - **Host logs**: `./logs/scraper.log`
 
@@ -65,12 +86,14 @@ The logs include:
 ```
 scrape-bot/
 ├── main.py              # Main scraper application
+├── log_file_server.py   # Web server for log file access
 ├── requirements.txt     # Python dependencies
 ├── Dockerfile          # Container configuration
 ├── docker-compose.yml  # Service orchestration
 ├── crontab             # Cron schedule configuration
 ├── articles/           # Scraped articles (markdown files)
 ├── logs/              # Application logs
+├── screenshots/       # Documentation screenshots
 └── README.md          # This file
 ```
 

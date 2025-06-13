@@ -1,11 +1,26 @@
 version: '3.8'
 
+# Scrape Bot with Log File Server
+# 
+# Usage:
+#   docker-compose up -d              # Start services in background
+#   docker-compose logs -f scrape-bot # Follow container logs
+#   
+# Access logs via:
+#   - Web interface: http://localhost:8080
+#   - Available files: http://localhost:8080/
+#   - Specific log: http://localhost:8080/logs/scraper.log
+#   - Local files: ./logs/ directory
+
 services:
   scrape-bot:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: scrape-bot
+    ports:
+      # Expose port 8080 for the log file server
+      - "8080:8080"
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - VECTOR_STORE=${VECTOR_STORE}
@@ -18,7 +33,7 @@ services:
     restart: unless-stopped
     # Health check to monitor if the container is running properly
     healthcheck:
-      test: ["CMD", "pgrep", "cron"]
+      test: ["CMD", "sh", "-c", "pgrep cron && pgrep -f log_file_server.py"]
       interval: 30s
       timeout: 10s
       retries: 3

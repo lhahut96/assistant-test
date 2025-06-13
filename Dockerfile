@@ -14,8 +14,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the main script and other necessary files
 COPY main.py /app/main.py
-COPY .env /app/.env
-
 # Copy the crontab file
 COPY crontab /etc/cron.d/scraper-crontab
 

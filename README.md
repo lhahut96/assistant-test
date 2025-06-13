@@ -9,12 +9,45 @@
 
 ## Installation
 
+### Method 1: Using Docker Compose (Recommended)
+
+1. Clone the repository and navigate to the project directory
+2. Copy the environment file and configure your API keys:
+```bash
+cp .env.example .env
+```
+3. Edit `.env` and add your OpenAI API key and vector store name
+4. Build and run with Docker Compose:
+```bash
+docker-compose up -d
+```
+
+The scraper will run automatically based on the cron schedule (daily at 2:00 AM UTC). You can view logs with:
+```bash
+docker-compose logs -f scrape-bot
+```
+
+### Method 2: Manual Python Installation
+
 1. Install the required Python packages:
 ```bash
 pip install -r requirements.txt
 ```
 
 ## Usage
+
+### Docker Compose Usage (Automated)
+
+Once running with Docker Compose, the scraper will automatically execute based on the cron schedule. You can:
+
+- **View logs**: `docker-compose logs -f scrape-bot`
+- **Check status**: `docker-compose ps`
+- **Stop the service**: `docker-compose down`
+- **Restart the service**: `docker-compose restart`
+- **Access scraped articles**: Check the `./articles/` directory
+- **View cron logs**: Check the `./logs/` directory
+
+### Manual Execution
 
 ### Method 1: Run the batch script (Windows)
 ```bash

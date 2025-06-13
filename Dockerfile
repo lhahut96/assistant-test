@@ -29,5 +29,8 @@ RUN mkdir -p /var/log
 # Create the log file to be able to run tail
 RUN touch /var/log/scraper.log
 
-# Start cron in foreground
-CMD ["cron", "-f"]
+# Create articles directory
+RUN mkdir -p /app/articles
+
+# Start cron and run initial scrape
+CMD ["sh", "-c", "cd /app && python main.py >> /var/log/scraper.log 2>&1 && echo 'Initial scrape completed at $(date)' >> /var/log/scraper.log && cron && tail -f /var/log/scraper.log"]

@@ -3,3 +3,4 @@
 articles/*
 *.json
 .env
+logs/

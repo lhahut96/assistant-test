@@ -1,7 +1,3 @@
-# OptSigns Support Website Scraper
-
-A Python web scraper that extracts content from the OptSigns support website (https://support.optisigns.com/hc/en-us).
-
 ## Features
 
 - **Categories Scraping**: Extracts all support categories and their articles

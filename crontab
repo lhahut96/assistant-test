@@ -5,7 +5,7 @@
 # Set PATH to ensure binaries are found
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-2 * * * * /app/run_scraper.sh >> /var/log/scraper.log 2>&1
+0 2 * * * /app/run_scraper.sh >> /var/log/scraper.log 2>&1
 
 # Alternative schedules (uncomment one if you prefer):
 # Run at midnight UTC:

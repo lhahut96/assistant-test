@@ -2,16 +2,22 @@
 # This will run the Python scraper script every day at 2:00 AM UTC
 # Format: minute hour day month day_of_week command
 
-0 2 * * * cd /app && python3 main.py >> /var/log/scraper.log 2>&1
+# Set PATH to ensure binaries are found
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+2 * * * * /app/run_scraper.sh >> /var/log/scraper.log 2>&1
 
 # Alternative schedules (uncomment one if you prefer):
 # Run at midnight UTC:
-# 0 0 * * * cd /app && python3 main.py >> /var/log/scraper.log 2>&1
+# 0 0 * * * /app/run_scraper.sh >> /var/log/scraper.log 2>&1
 
 # Run at 6:00 AM UTC:
-# 0 6 * * * cd /app && python3 main.py >> /var/log/scraper.log 2>&1
+# 0 6 * * * /app/run_scraper.sh >> /var/log/scraper.log 2>&1
 
 # Run at noon UTC:
-# 0 12 * * * cd /app && python3 main.py >> /var/log/scraper.log 2>&1
+# 0 12 * * * /app/run_scraper.sh >> /var/log/scraper.log 2>&1
 
 # Empty line required at end of crontab file
+
+# Test Run for every 15 mins: 
+# */15 * * * * /app/run_scraper.sh >> /var/log/scraper.log 2>&1

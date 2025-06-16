@@ -5,10 +5,6 @@ RUN apt-get update && apt-get install -y \
     cron \
     && rm -rf /var/lib/apt/lists/*
 
-# Create symbolic link for python command
-RUN ln -s /usr/local/bin/python3 /usr/local/bin/python
-
-# Create app directory
 WORKDIR /app
 
 # Copy requirements and install Python dependencies
@@ -18,6 +14,15 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the main script and other necessary files
 COPY main.py /app/main.py
 COPY log_file_server.py /app/log_file_server.py
+
+# Create a wrapper script for the cron job that preserves environment variables
+RUN echo '#!/bin/bash\n\
+export OPENAI_API_KEY="$OPENAI_API_KEY"\n\
+export VECTOR_STORE="$VECTOR_STORE"\n\
+cd /app\n\
+/usr/local/bin/python3 main.py\n\
+' > /app/run_scraper.sh && chmod +x /app/run_scraper.sh
+
 # Copy the crontab file
 COPY crontab /etc/cron.d/scraper-crontab
 
@@ -41,6 +46,9 @@ RUN mkdir -p /app/articles
 # Create startup script to run both services
 RUN echo '#!/bin/bash\n\
 set -e\n\
+\n\
+# Export environment variables for cron\n\
+printenv | grep -E "^(OPENAI_API_KEY|VECTOR_STORE)=" >> /etc/environment\n\
 \n\
 # Function to sync logs\n\
 sync_logs() {\n\

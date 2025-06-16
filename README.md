@@ -4,13 +4,9 @@
 
 ## Screenshots
 
-### Log File Server Interface
-![Log Server Interface](screenshots/log-server.png)
-*Web interface showing available log files*
+### Bot screenshot
+![](screenshot.png)
 
-### Live Log Monitoring
-![Live Logs](screenshots/live-logs.png)
-*Real-time log monitoring through the web interface*
 
 ## Setup
 

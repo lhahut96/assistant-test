@@ -5,6 +5,9 @@ RUN apt-get update && apt-get install -y \
     cron \
     && rm -rf /var/lib/apt/lists/*
 
+# Create symbolic link for python command
+RUN ln -s /usr/local/bin/python3 /usr/local/bin/python
+
 # Create app directory
 WORKDIR /app
 
@@ -37,6 +40,7 @@ RUN mkdir -p /app/articles
 
 # Create startup script to run both services
 RUN echo '#!/bin/bash\n\
+set -e\n\
 \n\
 # Function to sync logs\n\
 sync_logs() {\n\
@@ -48,9 +52,13 @@ sync_logs() {\n\
     done\n\
 }\n\
 \n\
+# Check Python availability\n\
+echo "Python version: $(python3 --version)"\n\
+echo "Python path: $(which python3)"\n\
+\n\
 # Run initial scrape\n\
 echo "Running initial scrape..."\n\
-cd /app && python main.py >> /var/log/scraper.log 2>&1\n\
+cd /app && python3 main.py >> /var/log/scraper.log 2>&1\n\
 cp /var/log/scraper.log /app/logs/scraper.log 2>/dev/null || true\n\
 echo "Initial scrape completed at $(date)" | tee -a /var/log/scraper.log /app/logs/scraper.log\n\
 \n\
@@ -63,7 +71,17 @@ sync_logs &\n\
 \n\
 # Start log file server in background\n\
 echo "Starting log file server on port 8080..."\n\
-python log_file_server.py &\n\
+python3 log_file_server.py &\n\
+\n\
+# Wait a moment for the server to start\n\
+sleep 2\n\
+\n\
+# Check if log file server is running\n\
+if pgrep -f log_file_server.py > /dev/null; then\n\
+    echo "Log file server started successfully"\n\
+else\n\
+    echo "Warning: Log file server may not have started properly"\n\
+fi\n\
 \n\
 # Follow scraper logs\n\
 echo "Following scraper logs..."\n\
